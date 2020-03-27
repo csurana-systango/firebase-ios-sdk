@@ -164,6 +164,8 @@ NS_ASSUME_NONNULL_BEGIN
 
   std::unique_ptr<RemoteStore> _remoteStore;
 
+  absl::optional<int> _maxConcurrentLimboResolutions;
+
   DelayedConstructor<EventManager> _eventManager;
 
   // Set of active targets, keyed by target Id, mapped to corresponding resume token,
@@ -188,16 +190,13 @@ NS_ASSUME_NONNULL_BEGIN
   int _snapshotsInSyncEvents;
 }
 
-- (instancetype)initWithPersistence:(std::unique_ptr<Persistence>)persistence {
-  return [self initWithPersistence:std::move(persistence)
-                       initialUser:User::Unauthenticated()
-                 outstandingWrites:{}];
-}
-
 - (instancetype)initWithPersistence:(std::unique_ptr<Persistence>)persistence
                         initialUser:(const User &)initialUser
-                  outstandingWrites:(const FSTOutstandingWriteQueues &)outstandingWrites {
+                  outstandingWrites:(const FSTOutstandingWriteQueues &)outstandingWrites
+      maxConcurrentLimboResolutions:(absl::optional<int>)maxConcurrentLimboResolutions {
   if (self = [super init]) {
+    _maxConcurrentLimboResolutions = maxConcurrentLimboResolutions;
+
     // Do a deep copy.
     for (const auto &pair : outstandingWrites) {
       _outstandingWrites[pair.first] = [pair.second mutableCopy];
@@ -219,7 +218,13 @@ NS_ASSUME_NONNULL_BEGIN
         [self](OnlineState onlineState) { _syncEngine->HandleOnlineStateChange(onlineState); });
     ;
 
-    _syncEngine = absl::make_unique<SyncEngine>(_localStore.get(), _remoteStore.get(), initialUser);
+    if (_maxConcurrentLimboResolutions) {
+      _syncEngine = absl::make_unique<SyncEngine>(_localStore.get(), _remoteStore.get(),
+                                                  initialUser, *_maxConcurrentLimboResolutions);
+    } else {
+      _syncEngine =
+          absl::make_unique<SyncEngine>(_localStore.get(), _remoteStore.get(), initialUser);
+    }
     _remoteStore->set_sync_engine(_syncEngine.get());
     _eventManager.Init(_syncEngine.get());
 

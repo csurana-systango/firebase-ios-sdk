@@ -177,6 +177,7 @@ NSString *ToTargetIdListString(const ActiveTargetMap &map) {
 
 @implementation FSTSpecTests {
   BOOL _gcEnabled;
+  absl::optional<int> _maxConcurrentLimboResolutions;
   BOOL _networkEnabled;
   FSTUserDataConverter *_converter;
 }
@@ -205,15 +206,28 @@ NSString *ToTargetIdListString(const ActiveTargetMap &map) {
 - (void)setUpForSpecWithConfig:(NSDictionary *)config {
   _converter = FSTTestUserDataConverter();
 
-  // Store GCEnabled so we can re-use it in doRestart.
+  // Store GCEnabled and so we can re-use it in doRestart.
   NSNumber *GCEnabled = config[@"useGarbageCollection"];
   _gcEnabled = [GCEnabled boolValue];
+  NSNumber *maxConcurrentLimboResolutions = config[@"maxConcurrentLimboResolutions"];
+  if (maxConcurrentLimboResolutions == nil) {
+    _maxConcurrentLimboResolutions = absl::optional<int>();
+  } else {
+    _maxConcurrentLimboResolutions = absl::optional<int>([maxConcurrentLimboResolutions intValue]);
+  }
   NSNumber *numClients = config[@"numClients"];
   if (numClients) {
     XCTAssertEqualObjects(numClients, @1, @"The iOS client does not support multi-client tests");
   }
+
   std::unique_ptr<Persistence> persistence = [self persistenceWithGCEnabled:_gcEnabled];
-  self.driver = [[FSTSyncEngineTestDriver alloc] initWithPersistence:std::move(persistence)];
+
+  self.driver =
+      [[FSTSyncEngineTestDriver alloc] initWithPersistence:std::move(persistence)
+                                               initialUser:User::Unauthenticated()
+                                         outstandingWrites:{}
+                             maxConcurrentLimboResolutions:_maxConcurrentLimboResolutions];
+
   [self.driver start];
 }
 
@@ -518,9 +532,11 @@ NSString *ToTargetIdListString(const ActiveTargetMap &map) {
   [self.driver shutdown];
 
   std::unique_ptr<Persistence> persistence = [self persistenceWithGCEnabled:_gcEnabled];
-  self.driver = [[FSTSyncEngineTestDriver alloc] initWithPersistence:std::move(persistence)
-                                                         initialUser:currentUser
-                                                   outstandingWrites:outstandingWrites];
+  self.driver =
+      [[FSTSyncEngineTestDriver alloc] initWithPersistence:std::move(persistence)
+                                               initialUser:currentUser
+                                         outstandingWrites:outstandingWrites
+                             maxConcurrentLimboResolutions:_maxConcurrentLimboResolutions];
   [self.driver start];
 }
 
